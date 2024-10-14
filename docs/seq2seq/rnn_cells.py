@@ -31,8 +31,8 @@ class RNNCellManual(nn.Module):
         
         return h_t
     
-    def initialize(self):
-        return torch.zeros(self.hidden_dim)
+    def initialize(self, batch_size):
+        return torch.zeros(batch_size, self.hidden_dim)
 
 class LSTMCellManual(nn.Module):
     def __init__(self, input_dim, hidden_dim):
@@ -66,5 +66,5 @@ class LSTMCellManual(nn.Module):
         
         return h_t, c_t
     
-    def initialize(self):
-        return torch.zeros(self.hidden_dim), torch.zeros(self.hidden_dim)
+    def initialize(self, batch_size):
+        return torch.zeros(batch_size, self.hidden_dim), torch.zeros(batch_size, self.hidden_dim)
