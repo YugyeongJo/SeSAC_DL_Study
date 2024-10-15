@@ -1,143 +1,121 @@
-import random 
-import torch 
-import torch.nn as nn 
+import random
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+
+from data_handler import Vocabulary
+from rnn_cell import RNNCellManual, LSTMCellManual
 
 class EncoderState:
-    def __init__(self, **kargs):
+    """Abstraction for the encoder outputs to be passed to the decoder.
+    This class encapsulates all necessary information from the encoder
+    to the decoder, allowing flexibility in encoder outputs.
+    """
+    def __init__(self, hidden, **kargs):
+        self.hidden = hidden
+        self.extra_info = kargs  # For any additional data
         for k, v in kargs.items():
             exec(f'self.{k} = v')
 
-    def initialize(self):
-        assert 'model_type' in dir(self)
-        return self.model_type.initialize()
-
 class Encoder(nn.Module):
-    def __init__(self, source_vocab, embedding_dim, hidden_dim, model_type, ):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, model_type = 'rnn'):
         super(Encoder, self).__init__()
-        self.source_vocab = source_vocab 
-        self.embedding_dim = embedding_dim 
-        self.hidden_dim = hidden_dim 
         self.model_type = model_type
+        self.hidden_size = hidden_size
 
-        self.embedding = nn.Embedding(source_vocab.vocab_size, embedding_dim)
-        self.cell = model_type(embedding_dim, hidden_dim)
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+
+        if model_type == 'rnn':
+            self.cell = RNNCellManual(embedding_dim, hidden_size)
+        elif model_type == 'lstm':
+            self.cell = LSTMCellManual(embedding_dim, hidden_size)
+        else:
+            raise ValueError('Invalid model type')
 
     def forward(self, source):
-        batch_size, seq_length = source.size()
+        batch_size, seq_len = source.size()
+        h_t = torch.zeros(batch_size, self.hidden_size).to(source.device)
+        c_t = torch.zeros(batch_size, self.hidden_size).to(source.device) if self.model_type == 'lstm' else None
 
-        embedded = self.embedding(source)
-        encoder_state = self.cell.initialize(batch_size)
+        # Embed the source sequence
+        embedded = self.embedding(source)  # [batch_size, seq_len, embedding_dim]
 
-        for t in range(seq_length):
-            x_t = embedded[:, t, :]
-            if self.model_type == RNNCellManual:
-                encoder_state = self.cell(x_t, encoder_state)
-            elif self.model_type == LSTMCellManual:
-                encoder_state = self.cell(x_t, *encoder_state)
+        # Encode the source sequence
+        for t in range(seq_len):
+            x_t = embedded[:, t, :]  # [batch_size, embedding_dim]
 
-        return encoder_state 
+            if self.model_type == 'rnn':
+                h_t = self.cell(x_t, h_t)
+            elif self.model_type == 'lstm':
+                h_t, c_t = self.cell(x_t, h_t, c_t)
+
+        # Return an EncoderState object
+        return EncoderState(hidden = h_t, cell = c_t)
 
 class Decoder(nn.Module):
-    def __init__(self, target_vocab, embedding_dim, hidden_dim, model_type):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, model_type='rnn'):
         super(Decoder, self).__init__()
-        
-        self.target_vocab = target_vocab 
-        self.embedding_dim = embedding_dim 
-        self.hidden_dim = hidden_dim 
         self.model_type = model_type
+        self.hidden_size = hidden_size
+        self.vocab_size = vocab_size
 
-        self.embedding = nn.Embedding(target_vocab.vocab_size, embedding_dim)
-        self.cell = model_type(embedding_dim, hidden_dim) 
-        self.h2o = nn.Linear(hidden_dim, target_vocab.vocab_size)
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
-    def forward(self, target, encoder_last_state, teacher_forcing_ratio = 0.5):
-        # target: batch_size, seq_length 
-        batch_size, seq_length = target.size()
-        
-        outputs = []
+        if model_type == 'rnn':
+            self.cell = RNNCellManual(embedding_dim, hidden_size)
+        elif model_type == 'lstm':
+            self.cell = LSTMCellManual(embedding_dim, hidden_size)
+        else:
+            raise ValueError('Invalid model type')
 
-        input = torch.tensor([self.target_vocab.SOS_IDX for _ in range(batch_size)]) # input: batch_size 
-        decoder_state = encoder_last_state 
+        self.out = nn.Linear(hidden_size, vocab_size)
 
-        for t in range(seq_length):
-            # embedded: batch_size * embedding_dim 
-            embedded = self.embedding(input)
-            if self.model_type == RNNCellManual:
-                decoder_state = self.cell(embedded, decoder_state)
-            elif self.model_type == LSTMCellManual:
-                decoder_state = self.cell(embedded, *decoder_state)
-            output = self.h2o(decoder_state) 
-            outputs.append(output)
+    def forward(self, target, encoder_state, teacher_forcing_ratio = 0.5, eos_idx = Vocabulary.eos_idx):
+        hidden = encoder_state.hidden
+        cell = encoder_state.cell
+        batch_size, trg_len = target.size()
+        outputs = torch.zeros(batch_size, trg_len, self.vocab_size).to(target.device)
 
-            if random.random() < teacher_forcing_ratio and t < seq_length - 1: # do teacher forcing 
-                input = target[:, t+1]
-            else:
-                input = torch.argmax(output, dim = 1)
-        # outputs: batch_size, seq_length, vocab_size 
-        return torch.stack(outputs, dim = 1)
+        # First input to the decoder is the <SOS> tokens
+        input = torch.tensor([[Vocabulary.sos_idx] for _ in range(batch_size)], dtype = torch.long).to(target.device) # [batch_size, 1]
+
+        for t in range(trg_len):
+            x_t = self.embedding(input).unsqueeze(1)  # [batch_size, embedding_dim]
+            print(x_t.shape)
+            if self.model_type == 'rnn':
+                hidden = self.cell(x_t, hidden)
+            elif self.model_type == 'lstm':
+                hidden, cell = self.cell(x_t, hidden, cell)
+            
+            output = self.out(hidden)
+            outputs[:, t] = output
+
+            # Decide whether to do teacher forcing
+            teacher_force = random.random() < teacher_forcing_ratio
+            top1 = output.argmax(1)  # Get the predicted word
+
+            input = target[:, t+1] if teacher_force and t < trg_len - 1 else top1
+
+            # Optional: Break early if all sequences in batch have generated EOS
+            if not teacher_force and (top1 == eos_idx).all():  
+                break
+
+        return outputs
 
 class Seq2Seq(nn.Module):
-    def __init__(self, encoder, decoder):
-        super(Seq2Seq, self).__init__() 
-        self.encoder = encoder 
-        self.decoder = decoder 
+    def __init__(self, encoder, decoder, device):
+        super(Seq2Seq, self).__init__()
 
-    def forward(self, source, target):
-        encoder_hidden = self.encoder(source) 
-        outputs = self.decoder(target, encoder_hidden)
+        self.encoder = encoder
+        self.decoder = decoder
+        self.device = device
 
-        return outputs 
+    def forward(self, source, target, teacher_forcing_ratio = 0.5):
+        # Encode
+        encoder_state = self.encoder(source)
 
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    
-    from data_handler import parse_file 
-    from rnn_cells import RNNCellManual, LSTMCellManual
+        # Decode
+        outputs = self.decoder(target, encoder_state, teacher_forcing_ratio)
 
-    embedding_dim = 256
-    batch_size = 32
-    encoder_model = RNNCellManual
-    decoder_model = RNNCellManual
-    hidden_dim = 128
-    criterion = nn.CrossEntropyLoss
-    optimizer = torch.optim.Adam 
-    learning_rate = 0.001 
-    num_epochs = 10 
+        return outputs
 
-    (train, valid, test), source_vocab, target_vocab = parse_file('kor.txt', batch_size = batch_size)
-    encoder = Encoder(source_vocab, embedding_dim, hidden_dim, encoder_model)
-    decoder = Decoder(target_vocab, embedding_dim, hidden_dim, decoder_model)
-
-    model = Seq2Seq(encoder = encoder, 
-                    decoder = decoder,)
-    
-    model.train()
-    loss = 0
-    loss_history = []
-    
-    criterion = criterion()
-    optimizer = optimizer(model.parameters(), lr = learning_rate)
-
-    for epoch in range(1, num_epochs + 1):
-        epoch_loss = 0
-        for step_idx, (source_batch, target_batch) in enumerate(train):
-            optimizer.zero_grad()
-            
-            pred_batch = model(source_batch, target_batch)
-            batch_size, seq_length = target_batch.size()
-            
-            loss = criterion(pred_batch.view(batch_size * seq_length, -1), target_batch.view(-1))
-
-            loss.backward() 
-            optimizer.step()
-            
-            epoch_loss += loss 
-
-            if step_idx % 100 == 0:
-                print(f'[Epoch {epoch}/{num_epochs}] step {step_idx}: loss - {loss}')
-
-        avg_loss = epoch_loss.item() / len(train)
-        loss_history.append(avg_loss)
-    plt.plot(loss_history)
-    plt.show()
-            

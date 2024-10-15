@@ -6,7 +6,9 @@ from data_handler_02 import Vocabulary
 from rnn_cells_02 import RNNCellManual, LSTMCellManual
 
 class EncoderState:
-    def __init__(self, **kargs):
+    def __init__(self, hidden, **kargs):
+        self.hidden = hidden
+        self.extra_info = kargs
         for k, v in kargs.items():
             exec(f'self.{k} = v')
             
