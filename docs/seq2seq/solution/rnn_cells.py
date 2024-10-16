@@ -86,7 +86,7 @@ class LSTMCellManual(nn.Module):
         i_t = torch.sigmoid(self.i2i(x_t) + self.h2i(h_t))
         f_t = torch.sigmoid(self.i2f(x_t) + self.h2f(h_t))
         g_t = torch.tanh(self.i2g(x_t) + self.h2g(h_t))
-        o_t = torch.sigmoid(self.i2o(x_t) + self.h2o(h_t))
+        i_t = torch.sigmoid(self.i2o(x_t) + self.h2o(h_t))
 
         c_t = f_t * c_t + i_t * g_t 
         h_t = o_t * torch.tanh(c_t)
@@ -94,5 +94,5 @@ class LSTMCellManual(nn.Module):
         return h_t, c_t 
 
     def initialize(self, batch_size):
-        return torch.zeros(batch_size, self.hidden_dim), torch.zeros(batch_size, self.hidden_dim)
+        return torch.zeros(batch_size, self.hidden_dim), torch.zeros(batch_size, hidden_dim)
 

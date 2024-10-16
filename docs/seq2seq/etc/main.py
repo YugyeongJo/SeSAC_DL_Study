@@ -1,4 +1,5 @@
-
+import torch 
+import torch.nn as nn
 
 from data_handler import create_integer_sequence_dataset, create_lang_pair, Vocabulary
 from seq2seq import Encoder, Decoder, Seq2Seq

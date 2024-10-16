@@ -1,121 +1,118 @@
-import torch
-import torch.nn as nn
-import matplotlib.pyplot as plt
-import numpy as np
 import os
+import random 
+import torch 
+import torch.nn as nn 
+import matplotlib.pyplot as plt
 
-from torch.utils.data import DataLoader
-from data_handler import Vocabulary
+import os
+import random 
+import torch 
+import torch.nn as nn 
 
-class Trainer:
-    """_summary_
-    """
-    
-    def __init__(self, model, device, criterion, optimizer, max_target_len = 100, save_dir = 'models'):
-        """_summary_
-
-        Args:
-            model (_type_): _description_
-            device (_type_): _description_
-            criterion (_type_): _description_
-            optimizer (_type_): _description_
-        """
-        self.model = model.to(device)
-        self.device = device
-        self.criterion = criterion
+class Seq2SeqTrainer:
+    def __init__(self, model, train_loader, valid_loader, optimizer, criterion, device):
+        self.model = model
+        self.train_loader = train_loader
+        self.valid_loader = valid_loader
         self.optimizer = optimizer
-        self.save_dir = save_dir
-        os.makedirs(save_dir, exist_ok = True)
-        self.max_target_len = max_target_len
+        self.criterion = criterion
+        self.device = device
+        
+        # 저장할 폴더 경로 설정
+        self.save_dir = 'saved_models'
+        os.makedirs(self.save_dir, exist_ok=True)  # 폴더가 없으면 생성
+        self.save_path = os.path.join(self.save_dir, 'best_model.pth')  # 모델 저장 경로 설정
         
         self.train_losses = []
-        self.val_losses = []
-        self.val_metrics = []
-        self.best_val_loss = float('inf')
-        self.best_model_state = None
+        self.train_accuracies = []
+        self.best_loss = float('inf')  # Initialize best_loss as infinity
+
+    def train(self, num_epochs):
+        self.model.train()
         
-    def train(self, train_loader, valid_loader=None, num_epochs=10, print_every=1, evaluate_every=1, evaluate_metric = 'accuracy'):
-        """_summary_
-        """
-        val_counter = 0
-        for epoch in range(1, num_epochs+1):
-            self.model.train()
-            epoch_train_loss = 0
+        for epoch in range(num_epochs):
+            epoch_loss = 0
+            correct_predictions = 0
+            total_predictions = 0
             
-            for batch_idx, (source, target) in enumerate(train_loader):
-                source = source.to(self.device)
-                target = target.to(self.device)
+            for source, target in self.train_loader:
+                source, target = source.to(self.device), target.to(self.device)  # Move data to device
+                self.optimizer.zero_grad()  # Zero the gradients
                 
-                self.optimizer.zero_grad()
-                output = self.model(source, target)
+                outputs = self.model(source, target[:, :-1])  # Forward pass (excluding last target)
+                loss = self.criterion(outputs.view(-1, outputs.size(-1)), target[:, 1:].view(-1))  # Compute loss
+                loss.backward()  # Backpropagation
+                self.optimizer.step()  # Update weights
                 
-                output_dim = output.shape[-1]
-                output = output.reshape(-1, output_dim)
-                target = target.reshape(-1)
+                epoch_loss += loss.item()  # Accumulate loss
                 
-                loss = self.criterion(output, target)
-                loss.backward()
-                self.optimizer.step()
-                
-                epoch_train_loss += loss.item()
-                
-        avg_train_loss = epoch_train_loss / len(train_loader)
-        self.train_losses.append(avg_train_loss)
-        
-        if epoch % print_every == 0:
-            print(f'Epoch {epoch}/{num_epochs}, Training Loss: {avg_train_loss:.4f}')
+                # Calculate accuracy
+                _, predicted = torch.max(outputs, dim=-1)  # Get predicted classes
+                correct_predictions += (predicted == target[:, 1:]).sum().item()  # Count correct predictions
+                total_predictions += target[:, 1:].numel()  # Total predictions made
             
-        if valid_loader and epoch % evaluate_every == 0:
-            val_loss, val_metric = self.evaluate(valid_loader, evaluate_metric=evaluate_metric)
-            self.val_losses.append(val_loss)
-            self.val_metrics.append(val_metric)
+            # Calculate average loss and accuracy for the epoch
+            avg_loss = epoch_loss / len(self.train_loader)
+            accuracy = correct_predictions / total_predictions
+            self.train_losses.append(avg_loss)
+            self.train_accuracies.append(accuracy)
             
-            if val_loss < self.best_val_loss:
-                self.best_val_loss = val_loss
-                self.best_model_state = self.model.state_dict()
-                torch.save(self.best_model_state, os.path.join(self.save_dir, 'best_model.pth'))
-                print(f'Best model saved with validataion loss: {val_loss:.4f}, validation {evaluate_metric}: {val_metric:.4f}')
-                val_counter = 0
-            else:
-                val_counter += 1
-                
-        if val_counter > 10:
-            self.plot_losses()
-            return 
+            print(f'Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Train Accuracy: {accuracy:.4f}')
             
-    def evaluate(self, valid_loader, evaluate_metric = 'accuracy'):
-        """_summary_
-        """
+            # Evaluate on validation set
+            valid_loss, valid_accuracy = self.evaluate()
+            print(f'Epoch [{epoch+1}/{num_epochs}], Valid Loss: {valid_loss:.4f}, Valid Accuracy: {valid_accuracy:.4f}')
+            
+            # Save the best model based on the validation loss
+            if valid_loss < self.best_loss:
+                self.best_loss = valid_loss
+                torch.save(self.model.state_dict(), self.save_path)  # Save model state
+                print(f'Saved best model with valid loss: {self.best_loss:.4f} to {self.save_path}')
+                # Plot and save the loss and accuracy when saving the best model
+                self.plot()
+
+    def evaluate(self):
         self.model.eval()
-        epoch_val_loss = 0
-        
-        if evaluate_metric == 'accuracy':
-            correct = 0
-            total = 0
-        
+        valid_loss = 0
+        correct_predictions = 0
+        total_predictions = 0
+
         with torch.no_grad():
-            for source, target in valid_loader:
-                source = source.to(self.device)
-                target = target.to(self.device)
+            for source, target in self.valid_loader:
+                source, target = source.to(self.device), target.to(self.device)
+                outputs = self.model(source, target[:, :-1])
+                loss = self.criterion(outputs.view(-1, outputs.size(-1)), target[:, 1:].view(-1))
+                valid_loss += loss.item()
                 
-                output = self.model(source, target, teacher_forcing_ratio=0)
-                output_dim = output.shape[-1]
-                
-                if evaluate_metric == 'accuracy':
-                    output = output[:, 1:].reshape(-1, output_dim)
-                    target = target[:, 1:].reshape(-1)
-                    pred = torch.argmax(output, dim = -1)
-                    correct += torch.sum((pred == target).float())
-                    total += target.numel()
-                
-                loss = self.criterion(output, target)
-                epoch_val_loss += loss.item()
-                
-        if evaluate_metric == 'accuracy':
-            metric = correct / total
-            
-        avg_val_loss = epoch_val_loss / len(valid_loader)
-        print(f'Validation Loss: {avg_val_loss:.4f}, Validation {evaluate_metric}:{metric:.4f}')
+                _, predicted = torch.max(outputs, dim=-1)
+                correct_predictions += (predicted == target[:, 1:]).sum().item()
+                total_predictions += target[:, 1:].numel()
         
-        return avg_val_loss, metric 
+        avg_valid_loss = valid_loss / len(self.valid_loader)
+        accuracy = correct_predictions / total_predictions
+        return avg_valid_loss, accuracy
+
+    def plot(self):
+        # Create a figure for loss and accuracy
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+        # Plotting the loss
+        ax1.plot(self.train_losses, label='Training Loss', color='blue')
+        ax1.set_title('Training Loss Over Epochs')
+        ax1.set_xlabel('Epochs')
+        ax1.set_ylabel('Loss')
+        ax1.legend()
         
+        # Plotting the accuracy
+        ax2.plot(self.train_accuracies, label='Training Accuracy', color='orange')
+        ax2.set_title('Training Accuracy Over Epochs')
+        ax2.set_xlabel('Epochs')
+        ax2.set_ylabel('Accuracy')
+        ax2.legend()
+
+        # Save the plot
+        plot_path = os.path.join(self.save_dir, 'training_results.png')
+        plt.tight_layout()
+        plt.savefig(plot_path)  # Save the plot
+        plt.close(fig)  # Close the figure to free memory
+        print(f'Saved training results plot to {plot_path}')
