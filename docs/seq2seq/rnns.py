@@ -32,6 +32,9 @@ class RNNCellManual(nn.Module):
         """
         batch_size = x_t.size(0)  # Get the batch size from the input tensor
         
+        if h_t is None:
+            h_t = self.initialize(x_t.size(0), x_t.device)
+
         # Assert statements to check the dimensions of inputs and hidden states
         assert x_t.size(1) == self.input_dim, f'Input dimension was expected to be {self.input_dim}, got {x_t.size(1)}'
         assert h_t.size(0) == batch_size, f'0th dimension of h_t is expected to be {batch_size}, got {h_t.size(0)}'

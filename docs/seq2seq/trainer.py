@@ -4,13 +4,8 @@ import torch
 import torch.nn as nn 
 import matplotlib.pyplot as plt
 
-import os
-import random 
-import torch 
-import torch.nn as nn 
-
 class Seq2SeqTrainer:
-    def __init__(self, model, train_loader, valid_loader, optimizer, criterion, device):
+    def __init__(self, model, train_loader, valid_loader, optimizer, criterion, device, encoder_model_name, decoder_model_name, attention_model_name):
         self.model = model
         self.train_loader = train_loader
         self.valid_loader = valid_loader
@@ -18,14 +13,19 @@ class Seq2SeqTrainer:
         self.criterion = criterion
         self.device = device
         
+        # 모델 이름 저장
+        self.encoder_model_name = encoder_model_name
+        self.decoder_model_name = decoder_model_name
+        self.attention_model_name = attention_model_name
+        
         # 저장할 폴더 경로 설정
         self.save_dir = 'saved_models'
         os.makedirs(self.save_dir, exist_ok=True)  # 폴더가 없으면 생성
-        self.save_path = os.path.join(self.save_dir, 'best_model.pth')  # 모델 저장 경로 설정
         
         self.train_losses = []
         self.train_accuracies = []
-        self.best_loss = float('inf')  # Initialize best_loss as infinity
+        self.valid_losses = []
+        self.valid_accuracies = []
 
     def train(self, num_epochs):
         self.model.train()
@@ -40,7 +40,7 @@ class Seq2SeqTrainer:
                 self.optimizer.zero_grad()  # Zero the gradients
                 
                 outputs = self.model(source, target[:, :-1])  # Forward pass (excluding last target)
-                loss = self.criterion(outputs.view(-1, outputs.size(-1)), target[:, 1:].view(-1))  # Compute loss
+                loss = self.criterion(outputs.reshape(-1, outputs.size(-1)), target[:, 1:].reshape(-1))  # Compute loss
                 loss.backward()  # Backpropagation
                 self.optimizer.step()  # Update weights
                 
@@ -60,59 +60,61 @@ class Seq2SeqTrainer:
             print(f'Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Train Accuracy: {accuracy:.4f}')
             
             # Evaluate on validation set
-            valid_loss, valid_accuracy = self.evaluate()
+            valid_loss, valid_accuracy = self.evaluate(self.valid_loader)
+            self.valid_losses.append(valid_loss)
+            self.valid_accuracies.append(valid_accuracy)
             print(f'Epoch [{epoch+1}/{num_epochs}], Valid Loss: {valid_loss:.4f}, Valid Accuracy: {valid_accuracy:.4f}')
             
-            # Save the best model based on the validation loss
-            if valid_loss < self.best_loss:
-                self.best_loss = valid_loss
-                torch.save(self.model.state_dict(), self.save_path)  # Save model state
-                print(f'Saved best model with valid loss: {self.best_loss:.4f} to {self.save_path}')
-                # Plot and save the loss and accuracy when saving the best model
-                self.plot()
+            # Save the model for this epoch
+            epoch_model_path = os.path.join(self.save_dir, f'model_epoch_{epoch+1}.pth')
+            torch.save(self.model.state_dict(), epoch_model_path)  # Save model state
+            print(f'Saved model for epoch {epoch+1} to {epoch_model_path}')
+        
+        # Plot and save the loss and accuracy for train and validation after all epochs
+        self.plot()
 
-    def evaluate(self):
+    def evaluate(self, data_loader):
         self.model.eval()
-        valid_loss = 0
+        total_loss = 0
         correct_predictions = 0
         total_predictions = 0
 
         with torch.no_grad():
-            for source, target in self.valid_loader:
+            for source, target in data_loader:
                 source, target = source.to(self.device), target.to(self.device)
                 outputs = self.model(source, target[:, :-1])
-                loss = self.criterion(outputs.view(-1, outputs.size(-1)), target[:, 1:].view(-1))
-                valid_loss += loss.item()
+                loss = self.criterion(outputs.reshape(-1, outputs.size(-1)), target[:, 1:].reshape(-1))
+                total_loss += loss.item()
                 
                 _, predicted = torch.max(outputs, dim=-1)
                 correct_predictions += (predicted == target[:, 1:]).sum().item()
                 total_predictions += target[:, 1:].numel()
         
-        avg_valid_loss = valid_loss / len(self.valid_loader)
+        avg_loss = total_loss / len(data_loader)
         accuracy = correct_predictions / total_predictions
-        return avg_valid_loss, accuracy
+        return avg_loss, accuracy
 
     def plot(self):
         # Create a figure for loss and accuracy
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
-        # Plotting the loss
+        # Plotting the training and validation loss
         ax1.plot(self.train_losses, label='Training Loss', color='blue')
-        ax1.set_title('Training Loss Over Epochs')
+        ax1.plot(self.valid_losses, label='Validation Loss', color='red')
+        ax1.set_title(f'Loss Over Epochs\nEncoder: {self.encoder_model_name}, Decoder: {self.decoder_model_name}, Attention: {self.attention_model_name}')
         ax1.set_xlabel('Epochs')
         ax1.set_ylabel('Loss')
         ax1.legend()
         
-        # Plotting the accuracy
+        # Plotting the training and validation accuracy
         ax2.plot(self.train_accuracies, label='Training Accuracy', color='orange')
-        ax2.set_title('Training Accuracy Over Epochs')
+        ax2.plot(self.valid_accuracies, label='Validation Accuracy', color='green')
+        ax2.set_title(f'Accuracy Over Epochs\nEncoder: {self.encoder_model_name}, Decoder: {self.decoder_model_name}, Attention: {self.attention_model_name}')
         ax2.set_xlabel('Epochs')
         ax2.set_ylabel('Accuracy')
         ax2.legend()
 
         # Save the plot
-        plot_path = os.path.join(self.save_dir, 'training_results.png')
-        plt.tight_layout()
-        plt.savefig(plot_path)  # Save the plot
-        plt.close(fig)  # Close the figure to free memory
-        print(f'Saved training results plot to {plot_path}')
+        plot_path = os.path.join(self.save_dir, 'final_loss_accuracy.png')
+        plt.savefig(plot_path)
+        plt.show()  # Display the plot

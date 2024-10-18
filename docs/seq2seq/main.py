@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn 
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from data_handler import Vocabulary, parse_file, preprocessing  # 필요한 함수와 클래스 임포트
+from data_handler import Vocabulary, parse_file  # 필요한 함수와 클래스 임포트
 from rnns import RNNCellManual  # RNN 셀 임포트
 from lstms import LSTMCellManual  # LSTM 셀 임포트
 from attentions import LuongAttention, BahdanauAttention  # 어텐션 클래스 임포트
@@ -10,35 +10,57 @@ from seq2seq import Encoder, Decoder, Seq2Seq  # 인코더, 디코더, 시퀀스
 from trainer import Seq2SeqTrainer  # 트레이너 클래스 임포트
 
 def main(num_epochs=50, batch_size=32, learning_rate=0.001):
-    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # 사용할 장치 설정
+    print(f'Using device: {DEVICE}')
 
     # 1. 데이터 로드 및 전처리
-    train_data, valid_data, vocab = parse_file('./dataset/kor.txt')  # 데이터 파일 경로
-    train_data, valid_data = preprocessing(train_data), preprocessing(valid_data)
-    
-    # 2. 데이터 로더 설정
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    valid_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=False)
-    
-    # 3. 모델 초기화
-    embedding_dim = 256
-    hidden_size = 512
-    output_size = len(vocab)  # 어휘의 크기
-    encoder = Encoder(vocab_size=len(vocab), embedding_dim=embedding_dim, hidden_size=hidden_size).to(DEVICE)
-    decoder = Decoder(vocab_size=len(vocab), embedding_dim=embedding_dim, hidden_size=hidden_size).to(DEVICE)
-    model = Seq2Seq(encoder, decoder).to(DEVICE)
-    
-    # 4. 옵티마이저 및 손실 함수 설정
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.CrossEntropyLoss(ignore_index=vocab['<PAD>'])  # <PAD>에 대한 손실 무시
-    
-    # 5. 트레이너 초기화 및 학습 시작
-    trainer = Seq2SeqTrainer(model, train_loader, valid_loader, optimizer, criterion, DEVICE)
-    trainer.train(num_epochs)
+    # 데이터셋 경로 설정
+    file_path = './dataset/kor.txt'  # 데이터셋 파일 경로
+
+    # 데이터 파일 파싱
+    dataloaders, source_vocab, target_vocab = parse_file(file_path, batch_size=batch_size)  # 데이터 로더 및 어휘 사전 생성
+
+    train_loader, valid_loader, test_loader = dataloaders  # 데이터 로더 분리
+
+    # 2. 모델 초기화
+    # 인코더와 디코더 초기화
+    embedding_dim = 128  # 임베딩 차원 (필요에 따라 조정 가능)
+    hidden_size = 256  # 숨겨진 상태의 크기
+
+    # Attention 메커니즘 선택 (예: LuongAttention 또는 BahdanauAttention)
+    attention = LuongAttention  # 또는 BahdanauAttention
+
+    encoder = Encoder(source_vocab, embedding_dim, hidden_size, RNNCellManual, DEVICE).to(DEVICE)  # 인코더 모델 초기화
+    decoder = Decoder(target_vocab, embedding_dim, hidden_size, RNNCellManual, attention, DEVICE).to(DEVICE)  # 디코더 모델 초기화
+    model = Seq2Seq(encoder, decoder).to(DEVICE)  # 시퀀스 투 시퀀스 모델 초기화
+
+    # 3. 손실 함수와 옵티마이저 설정
+    criterion = nn.CrossEntropyLoss()  # 손실 함수로 CrossEntropyLoss 사용
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # Adam 옵티마이저 사용
+
+    # 4. Trainer 인스턴스 생성
+    trainer = Seq2SeqTrainer(
+        model, 
+        train_loader, 
+        valid_loader, 
+        optimizer, 
+        criterion, 
+        DEVICE, 
+        encoder_model_name=encoder.model_type, 
+        decoder_model_name=decoder.model_type, 
+        attention_model_name=attention.__name__
+    )  # Trainer 인스턴스 생성
+
+    # 5. 모델 학습
+    trainer.train(num_epochs)  # 학습 시작
+
+    # 6. 최종 테스트 평가
+    test_loss, test_accuracy = trainer.evaluate(test_loader)  # 테스트 데이터셋에 대한 평가
+    print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')  # 테스트 결과 출력
 
 if __name__ == '__main__':
     NUM_EPOCHS = 50
-    BATCH_SIZE = 32
+    BATCH_SIZE = 64
     LEARNING_RATE = 0.001
     
     main(NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE)  # 하이퍼파라미터를 인자로 전달
