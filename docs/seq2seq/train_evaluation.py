@@ -4,9 +4,10 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 
 from data_handler import Vocabulary
+from metrics import bleu
 
 class Seq2SeqTrainer:
-    def __init__(self, model, train_loader, valid_loader, optimizer, criterion, device, encoder_model_name, decoder_model_name, attention_model_name):
+    def __init__(self, model, train_loader, valid_loader, optimizer, criterion, device, encoder_model_name, decoder_model_name, attention_model_name, source_vocab, target_vocab):
         self.model = model
         self.train_loader = train_loader
         self.valid_loader = valid_loader
@@ -22,6 +23,10 @@ class Seq2SeqTrainer:
         self.decoder_model_name = decoder_model_name
         self.attention_model_name = attention_model_name
         
+        # 단어사전 저장
+        self.source_vocab = source_vocab
+        self.target_vocab = target_vocab
+        
         # 저장할 폴더 경로 설정
         self.save_dir = 'saved_models'
         os.makedirs(self.save_dir, exist_ok=True)  # 폴더가 없으면 생성
@@ -30,6 +35,7 @@ class Seq2SeqTrainer:
         self.train_accuracies = []
         self.valid_losses = []
         self.valid_accuracies = []
+        self.bleu_scores = []
 
     def train(self, num_epochs):
         self.model.train()
@@ -64,45 +70,93 @@ class Seq2SeqTrainer:
             
             print(f'Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Train Accuracy: {accuracy:.4f}')
             
+            # Get predictions for evaluation
+            predicted_sentences = []
+            target_sentences = []
+
+            with torch.no_grad():
+                for source, target in self.valid_loader:
+                    source, target = source.to(self.device), target.to(self.device)
+                    outputs = self.model(source, target[:, :-1])
+                    _, predicted = torch.max(outputs, dim=-1)
+                    
+                    predicted_sentences.append(predicted)
+                    target_sentences.append(target[:, 1:])  # Collect target sentences
+                
             # Evaluate on validation set
-            valid_loss, valid_accuracy = self.evaluate(self.valid_loader)
+            valid_loss, valid_accuracy = self.evaluate(predicted_sentences, target_sentences)
             self.valid_losses.append(valid_loss)
             self.valid_accuracies.append(valid_accuracy)
             print(f'Epoch [{epoch+1}/{num_epochs}], Valid Loss: {valid_loss:.4f}, Valid Accuracy: {valid_accuracy:.4f}')
+            
+            # Calculate BLEU score for the validation set
+            bleu_score = self.calculate_bleu(predicted_sentences, target_sentences)
+            self.bleu_scores.append(bleu_score)
+            print(f'Epoch [{epoch+1}/{num_epochs}], BLEU Score: {bleu_score:.4f}')
             
             # Save the model for this epoch
             epoch_model_path = os.path.join(self.save_dir, f'model_epoch_{epoch+1}.pth')
             torch.save(self.model.state_dict(), epoch_model_path)  # Save model state
             print(f'Saved model for epoch {epoch+1} to {epoch_model_path}')
-        
+
+            # Save predictions and targets to a text file
+            self.save_translations(epoch, predicted_sentences, target_sentences)
+            
         # Plot and save the loss and accuracy for train and validation after all epochs
         self.plot()
 
-    def evaluate(self, data_loader):
-        self.model.eval()
+    def evaluate(self, predicted_sentences, target_sentences):
+        """Evaluate the model using predictions and targets directly."""
         total_loss = 0
         correct_predictions = 0
         total_predictions = 0
 
-        with torch.no_grad():
-            for source, target in data_loader:
-                source, target = source.to(self.device), target.to(self.device)
-                outputs = self.model(source, target[:, :-1])
-                loss = self.criterion(outputs.reshape(-1, outputs.size(-1)), target[:, 1:].reshape(-1))
-                total_loss += loss.item()
-                
-                _, predicted = torch.max(outputs, dim=-1)
-                mask = (target[:, 1:] != self.PAD_IDX)  # Create a mask to ignore PAD_IDX positions
-                correct_predictions += ((predicted == target[:, 1:]) & mask).sum().item()  # Count correct predictions while ignoring PAD_IDX
-                total_predictions += mask.sum().item()  # Only count non-PAD_IDX positions
+        for i in range(len(predicted_sentences)):
+            predicted = predicted_sentences[i]
+            target = target_sentences[i]
+
+            # Calculate loss (assuming 'outputs' was computed similarly)
+            loss = self.criterion(predicted.view(-1, predicted.size(-1)), target.view(-1))
+            total_loss += loss.item()
+
+            mask = (target != self.PAD_IDX)  # Create a mask to ignore PAD_IDX positions
+            correct_predictions += ((predicted == target) & mask).sum().item()  # Count correct predictions while ignoring PAD_IDX
+            total_predictions += mask.sum().item()  # Only count non-PAD_IDX positions
         
-        avg_loss = total_loss / len(data_loader)
+        avg_loss = total_loss / len(predicted_sentences)
         accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
         return avg_loss, accuracy
 
+    def calculate_bleu(self, predicted_sentences, target_sentences):
+        """Calculate BLEU score given predicted sentences and target sentences."""
+        total_bleu = 0
+        total_samples = len(predicted_sentences)
+
+        for i in range(total_samples):
+            total_bleu += bleu(predicted_sentences[i], target_sentences[i])  # BLEU 점수 계산
+
+        return total_bleu / total_samples if total_samples > 0 else 0
+
+    def translator(self, indices, target_vocab):
+        """Convert a list of indices back to a sentence string using the target vocabulary."""
+        return ' '.join(target_vocab[idx] for idx in indices if idx != self.PAD_IDX)
+
+    def save_translations(self, epoch, predicted_sentences, target_sentences):
+        """Save predictions and targets to a text file after each epoch."""
+        with torch.no_grad():
+            with open(os.path.join(self.save_dir, 'translations.txt'), 'a') as f:
+                f.write(f'Epoch {epoch + 1} Translations:\n')
+
+                for i in range(len(predicted_sentences)):
+                    predicted_sentence = self.translator(predicted_sentences[i].cpu().numpy(), self.target_vocab)
+                    target_sentence = self.translator(target_sentences[i].cpu().numpy(), self.target_vocab)  # Convert target sentence
+
+                    f.write(f'Predicted: {predicted_sentence}\n')
+                    f.write(f'Target: {target_sentence}\n\n')
+                        
     def plot(self):
         # Create a figure for loss and accuracy
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 15))
 
         # Plotting the training and validation loss
         ax1.plot(self.train_losses, label='Training Loss', color='blue')
@@ -120,6 +174,13 @@ class Seq2SeqTrainer:
         ax2.set_ylabel('Accuracy')
         ax2.legend()
 
+        # Plotting BLEU scores
+        ax3.plot(self.bleu_scores, label='BLEU Score', color='purple')
+        ax3.set_title('BLEU Score Over Epochs')
+        ax3.set_xlabel('Epochs')
+        ax3.set_ylabel('BLEU Score')
+        ax3.legend()
+        
         # Save the plot
         plot_path = os.path.join(self.save_dir, 'final_loss_accuracy.png')
         plt.savefig(plot_path)

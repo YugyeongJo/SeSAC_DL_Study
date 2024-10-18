@@ -7,7 +7,8 @@ from rnns import RNNCellManual  # RNN 셀 임포트
 from lstms import LSTMCellManual  # LSTM 셀 임포트
 from attentions import LuongAttention, BahdanauAttention  # 어텐션 클래스 임포트
 from seq2seq import Encoder, Decoder, Seq2Seq  # 인코더, 디코더, 시퀀스 투 시퀀스 모델 임포트
-from trainer import Seq2SeqTrainer  # 트레이너 클래스 임포트
+from train_evaluation import Seq2SeqTrainer  # 트레이너 클래스 임포트
+from metrics import bleu  # BLEU 점수 계산 함수 임포트
 
 def main(num_epochs=50, batch_size=32, learning_rate=0.001):
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # 사용할 장치 설정
@@ -19,7 +20,6 @@ def main(num_epochs=50, batch_size=32, learning_rate=0.001):
 
     # 데이터 파일 파싱
     dataloaders, source_vocab, target_vocab = parse_file(file_path, batch_size=batch_size)  # 데이터 로더 및 어휘 사전 생성
-
     train_loader, valid_loader, test_loader = dataloaders  # 데이터 로더 분리
 
     # 패딩 인덱스 가져오기 (어휘 사전에서)
@@ -51,7 +51,9 @@ def main(num_epochs=50, batch_size=32, learning_rate=0.001):
         DEVICE, 
         encoder_model_name=encoder.model_type, 
         decoder_model_name=decoder.model_type, 
-        attention_model_name=attention.__name__
+        attention_model_name=attention.__name__, 
+        source_vocab=source_vocab,
+        target_vocab=target_vocab
     )  # Trainer 인스턴스 생성
 
     # 5. 모델 학습
