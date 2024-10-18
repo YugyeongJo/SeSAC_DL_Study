@@ -1,8 +1,9 @@
 import os
-import random 
 import torch 
 import torch.nn as nn 
 import matplotlib.pyplot as plt
+
+from data_handler import Vocabulary
 
 class Seq2SeqTrainer:
     def __init__(self, model, train_loader, valid_loader, optimizer, criterion, device, encoder_model_name, decoder_model_name, attention_model_name):
@@ -12,6 +13,9 @@ class Seq2SeqTrainer:
         self.optimizer = optimizer
         self.criterion = criterion
         self.device = device
+        
+        # Vocabulary PAD_IDX
+        self.PAD_IDX = Vocabulary.PAD_IDX
         
         # 모델 이름 저장
         self.encoder_model_name = encoder_model_name
@@ -46,14 +50,15 @@ class Seq2SeqTrainer:
                 
                 epoch_loss += loss.item()  # Accumulate loss
                 
-                # Calculate accuracy
+                # Calculate accuracy while ignoring PAD_IDX
                 _, predicted = torch.max(outputs, dim=-1)  # Get predicted classes
-                correct_predictions += (predicted == target[:, 1:]).sum().item()  # Count correct predictions
-                total_predictions += target[:, 1:].numel()  # Total predictions made
+                mask = (target[:, 1:] != self.PAD_IDX)  # Create a mask to ignore PAD_IDX positions
+                correct_predictions += ((predicted == target[:, 1:]) & mask).sum().item()
+                total_predictions += mask.sum().item()  # Only count non-PAD_IDX positions
             
             # Calculate average loss and accuracy for the epoch
             avg_loss = epoch_loss / len(self.train_loader)
-            accuracy = correct_predictions / total_predictions
+            accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
             self.train_losses.append(avg_loss)
             self.train_accuracies.append(accuracy)
             
@@ -87,11 +92,12 @@ class Seq2SeqTrainer:
                 total_loss += loss.item()
                 
                 _, predicted = torch.max(outputs, dim=-1)
-                correct_predictions += (predicted == target[:, 1:]).sum().item()
-                total_predictions += target[:, 1:].numel()
+                mask = (target[:, 1:] != self.PAD_IDX)  # Create a mask to ignore PAD_IDX positions
+                correct_predictions += ((predicted == target[:, 1:]) & mask).sum().item()  # Count correct predictions while ignoring PAD_IDX
+                total_predictions += mask.sum().item()  # Only count non-PAD_IDX positions
         
         avg_loss = total_loss / len(data_loader)
-        accuracy = correct_predictions / total_predictions
+        accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
         return avg_loss, accuracy
 
     def plot(self):

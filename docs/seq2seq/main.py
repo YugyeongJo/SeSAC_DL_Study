@@ -22,6 +22,9 @@ def main(num_epochs=50, batch_size=32, learning_rate=0.001):
 
     train_loader, valid_loader, test_loader = dataloaders  # 데이터 로더 분리
 
+    # 패딩 인덱스 가져오기 (어휘 사전에서)
+    PAD_IDX = Vocabulary.PAD_IDX  # Vocabulary 클래스의 PAD_IDX 속성을 가져옵니다.
+    
     # 2. 모델 초기화
     # 인코더와 디코더 초기화
     embedding_dim = 128  # 임베딩 차원 (필요에 따라 조정 가능)
@@ -35,7 +38,7 @@ def main(num_epochs=50, batch_size=32, learning_rate=0.001):
     model = Seq2Seq(encoder, decoder).to(DEVICE)  # 시퀀스 투 시퀀스 모델 초기화
 
     # 3. 손실 함수와 옵티마이저 설정
-    criterion = nn.CrossEntropyLoss()  # 손실 함수로 CrossEntropyLoss 사용
+    criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX)  # 손실 함수로 CrossEntropyLoss 사용
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # Adam 옵티마이저 사용
 
     # 4. Trainer 인스턴스 생성
