@@ -17,7 +17,7 @@ class Vocabulary:
     EOS_IDX = 2
     OOV_IDX = 3
 
-    def __init__(self, word_count, coverage=0.999):
+    def __init__(self, word_count, coverage=0.95):
         """
         Initializes the Vocabulary object.
 
@@ -86,15 +86,22 @@ def parse_file(file_path, train_valid_test_ratio=(0.8, 0.1, 0.1), batch_size=32)
         # Process each line in the dataset file
         for line in f.readlines():
             line = line.strip()
-            source, target, etc = line.split('\t')
+            lst = line.split('\t')
+            
+            if len(lst) == 3:
+                source, target, etc = lst
+            elif len(lst) == 2:
+                source, target = lst 
 
             # Tokenize and count word frequencies for the source sequence
-            source = source.split()
+            source = source.split()[:20]
+            target = target.split()[:20]
+            
             for source_token in source:
                 source_word_count[source_token] += 1
 
             # Tokenize and count word frequencies for the target sequence
-            target = target.split()
+            
             for target_token in target:
                 target_word_count[target_token] += 1
 

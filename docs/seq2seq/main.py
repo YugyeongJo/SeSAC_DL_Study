@@ -7,7 +7,7 @@ from rnns import RNNCellManual  # RNN 셀 임포트
 from lstms import LSTMCellManual  # LSTM 셀 임포트
 from attentions import LuongAttention, BahdanauAttention  # 어텐션 클래스 임포트
 from seq2seq import Encoder, Decoder, Seq2Seq  # 인코더, 디코더, 시퀀스 투 시퀀스 모델 임포트
-from train_evaluation import Seq2SeqTrainer  # 트레이너 클래스 임포트
+from ttrain_evaluation import Seq2SeqTrainer  # 트레이너 클래스 임포트
 from metrics import bleu  # BLEU 점수 계산 함수 임포트
 
 def main(num_epochs=50, batch_size=32, learning_rate=0.001):
@@ -16,7 +16,7 @@ def main(num_epochs=50, batch_size=32, learning_rate=0.001):
 
     # 1. 데이터 로드 및 전처리
     # 데이터셋 경로 설정
-    file_path = './dataset/kor.txt'  # 데이터셋 파일 경로
+    file_path = '../../dataset/eng-fra.txt'  # 데이터셋 파일 경로
 
     # 데이터 파일 파싱
     dataloaders, source_vocab, target_vocab = parse_file(file_path, batch_size=batch_size)  # 데이터 로더 및 어휘 사전 생성
@@ -60,12 +60,12 @@ def main(num_epochs=50, batch_size=32, learning_rate=0.001):
     trainer.train(num_epochs)  # 학습 시작
 
     # 6. 최종 테스트 평가
-    test_loss, test_accuracy = trainer.evaluate(test_loader)  # 테스트 데이터셋에 대한 평가
-    print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')  # 테스트 결과 출력
+    # test_loss, test_accuracy = trainer.evaluate(test_loader)  # 테스트 데이터셋에 대한 평가
+    # print(f'Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}')  # 테스트 결과 출력
 
 if __name__ == '__main__':
     NUM_EPOCHS = 50
-    BATCH_SIZE = 64
+    BATCH_SIZE = 32
     LEARNING_RATE = 0.001
     
     main(NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE)  # 하이퍼파라미터를 인자로 전달

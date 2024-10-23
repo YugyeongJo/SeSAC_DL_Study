@@ -79,6 +79,7 @@ class Seq2SeqTrainer:
                     source, target = source.to(self.device), target.to(self.device)
                     outputs = self.model(source, target[:, :-1])
                     _, predicted = torch.max(outputs, dim=-1)
+                    print(predicted.dtype)
                     
                     predicted_sentences.append(predicted)
                     target_sentences.append(target[:, 1:])  # Collect target sentences
@@ -116,7 +117,7 @@ class Seq2SeqTrainer:
             target = target_sentences[i]
 
             # Calculate loss (assuming 'outputs' was computed similarly)
-            loss = self.criterion(predicted.view(-1, predicted.size(-1)), target.view(-1))
+            loss = self.criterion(predicted.reshape(-1, predicted.size(-1)), target.reshape(-1))
             total_loss += loss.item()
 
             mask = (target != self.PAD_IDX)  # Create a mask to ignore PAD_IDX positions
@@ -126,6 +127,31 @@ class Seq2SeqTrainer:
         avg_loss = total_loss / len(predicted_sentences)
         accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
         return avg_loss, accuracy
+    
+    def evaluate_or_train(self, data, update = False, evaluate = False):
+        res = []
+        answer = []
+        loss = 0
+        for source, target in data:
+            if update:
+                self.optimizer.zero_grad()
+            source, target = source.to(self.device), target.to(self.device)
+            outputs = self.model(source, target[:,:-1])
+            loss = self.criterion(outputs.reshape(-1, outputs.size(-1)), target[:, 1:].reshape(-1))  # Compute loss
+            
+            if update:
+                loss.backward()
+                self.optimizer.step() 
+            loss += loss.item()
+                
+            if evaluate:
+                _, predicted = torch.max(outputs, dim=-1)  # Get predicted classes
+                predicted_sentences = [[self.target_vocab.idx2word[idx] for idx in sent] for sent in predicted.tolist()]
+                target_sentences = [[self.target_vocab.idx2word[idx] for idx in sent] for sent in target.tolist()]
+                res.extend(predicted_sentences)
+                answer.extend(target_sentences)
+                return loss, res, answer 
+            return loss
 
     def calculate_bleu(self, predicted_sentences, target_sentences):
         """Calculate BLEU score given predicted sentences and target sentences."""
