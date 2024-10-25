@@ -75,6 +75,16 @@ class Vocabulary:
         for token in Vocabulary.SPECIAL_TOKENS:
             assert self.word2index[token] == Vocabulary.SPECIAL_TOKENS.index(token), debug_shell()
 
+        self.word2index = dict(self.word2index)
+        self.index2word = dict(self.index2word) 
+        self.word2freq = dict(self.word2freq)
+
+    def word2idx(self, token):
+        if token in self.word2index:
+            return self.word2index[token] 
+        else:
+            return self.oov_idx 
+
     def sentence2tensor(self, 
             sentence: List[str], 
             tokenize_strategy: str = 'split', 
@@ -82,7 +92,7 @@ class Vocabulary:
         tokens: List[str] = tokenize(sentence, tokenize_strategy)
 
         return torch.tensor(
-            [self.word2index[token] for token in tokens],
+            [self.word2idx(token) for token in tokens],
             dtype = torch.long
         )
 
@@ -175,7 +185,7 @@ class LanguagePair:
             res: torch.tensor = torch.zeros(len(sent_list), max_sentence_length, dtype = torch.long)
             
             for idx, sent in enumerate(sent_list):
-                lst: List[int] = [vocab.word2index[token] for token in sent] + [vocab.pad_idx for _ in range(max_sentence_length - len(sent))]
+                lst: List[int] = [vocab.word2idx(token) for token in sent] + [vocab.pad_idx for _ in range(max_sentence_length - len(sent))]
                 assert len(lst) == max_sentence_length
                 
                 res[idx] = torch.tensor(lst, dtype = torch.long)
@@ -212,31 +222,32 @@ class LanguagePair:
 
         self.data = dataloader 
 
-    @inspect_and_cache
-    @staticmethod
-    def initiate_from_file(data_file_path: str) -> Any:
-        """
-        From the given string that contains the path to file, open the file, read, and split each lines by a delimeter. 
-        """
-        source_sentences = []
-        target_sentences = []
+    
+    
+@inspect_and_cache
+def initiate_from_file(data_file_path: str) -> LanguagePair:
+    """
+    From the given string that contains the path to file, open the file, read, and split each lines by a delimeter. 
+    """
+    source_sentences = []
+    target_sentences = []
 
-        if develop:
-            print(f'Initiated making LanguagePair instance from {data_file_path}')
+    if develop:
+        print(f'Initiated making LanguagePair instance from {data_file_path}')
 
-        with open(data_file_path, 'r', encoding = 'utf-8') as f:
-            for line in f.readlines():
-                tab_seperated = line.strip().split('\t')
+    with open(data_file_path, 'r', encoding = 'utf-8') as f:
+        for line in f.readlines():
+            tab_seperated = line.strip().split('\t')
 
-                if len(tab_seperated) == 2:
-                    source, target = tab_seperated
-                else:
-                    source, target, *license_info = line.strip().split('\t')
-                source_sentences.append(source)
-                target_sentences.append(target)
+            if len(tab_seperated) == 2:
+                source, target = tab_seperated
+            else:
+                source, target, *license_info = line.strip().split('\t')
+            source_sentences.append(source)
+            target_sentences.append(target)
 
-        return LanguagePair(source_sentences, target_sentences)
-        
+    return LanguagePair(source_sentences, target_sentences)
+    
 
 def tokenize(sentence: str, tokenize_strategy: str = 'split') -> List[str]:
     """
@@ -260,7 +271,7 @@ if __name__ == '__main__':
     from config import en2fr_data
     from debugger import debug_shell 
     
-    en2fr: LanguagePair = LanguagePair.initiate_from_file(en2fr_data)
+    en2fr: LanguagePair = initiate_from_file(en2fr_data)
     
     debug_shell()
 
