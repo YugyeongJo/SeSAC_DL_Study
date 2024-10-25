@@ -74,7 +74,7 @@ class Seq2SeqTrainer:
                     
             with torch.no_grad():
                 self.model.eval()
-                valid_loss, valid_prediction, valid_target = self.train_or_evaluate(self.valid_loader, update = False, evaluate = True)
+                valid_loss, valid_prediction, valid_target = self.train_or_evaluate(self.train_loader, update = False, evaluate = True)
                 
                 valid_accuracy = self.calculate_accuracy(valid_prediction, valid_target)
             
@@ -111,7 +111,7 @@ class Seq2SeqTrainer:
         epoch_loss = 0
         
         # from itertools import islice
-        # for idx, (source, target) in enumerate(islice(data, 5)):
+        # for idx, (source, target) in enumerate(islice(data, 50)):
         for idx, (source, target) in enumerate(data):
             if update:
                 self.optimizer.zero_grad()
