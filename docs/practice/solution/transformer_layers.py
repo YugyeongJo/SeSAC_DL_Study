@@ -1,9 +1,10 @@
 import torch 
 import torch.nn as nn 
+from typing import List
 
 class SelfAttention(nn.Module):
     def __init__(
-        self, 
+        self,
         embedding_dim: int, 
         attention_head_dim: int, 
     ):
@@ -22,7 +23,7 @@ class SelfAttention(nn.Module):
         K: torch.tensor = self.W_k(x) 
         V: torch.tensor = self.W_v(x) 
 
-        score: torch.tensor = Q @ K.transpose(-2, -1) / attention_head_dim ** 0.5
+        score: torch.tensor = Q @ K.transpose(-2, -1) / self.attention_head_dim ** 0.5
 
         attention_distribution: torch.tensor = self.softmax(score) 
         Z: torch.tensor = attention_distribution @ V 
@@ -92,6 +93,43 @@ class TransformerEncoder(nn.Module):
         for layer in self.layers:
             x = layer(x) 
         return x 
+    
+class TransformerDecoderLayer(nn.Module):
+    def __init__(
+        self,
+        embedding_dim : int, 
+        num_heads: int, 
+        attention_head_dim: int,
+        eps: float = 1e-6, 
+        max_length:L int = 100,
+    ):
+        super(TransformerDecoderLayer, self).__init__()
+        self.self_attention: MultiheadSelfAttention = MultiheadSelfAttention(embedding_dim, num_heads, attention_head_dim)
+        self.ff: nn.Linear = nn.Linear(embedding_dim, embedding_dim)
+        self.layer_norm: LayerNormalization = LayerNormalization(embedding_dim)
+        self.mask = lambda t: torch.tensor([1 for _ in range(t)] + [eps for _ in range(max_length - t)])
+
+    def forward(
+        self, 
+        x: torch.tensor,
+    ) -> torch.tensor:
+        mask = self.mast(t)
+        after = self.self_attention(x)
+        x = self.layer_norm(x + after)
+        after = self.ff(x)
+        x = self.layer_norm(x + after)
+        
+        return x
+    
+class TransformerDecoder(nn.Module):
+    def __init__(
+        self,
+        num_layers: int, 
+        embedding_dim : int, 
+        num_heads: int, 
+        attention_head_dim: int,
+    ):
+        super(TransformerDecoder, self).__init__()
 
 class Transformer(nn.Module):
     def __init__(
@@ -124,3 +162,4 @@ class Transformer(nn.Module):
         out: torch.tensor = self.final_layer(decoder_output)
 
         return out
+    
