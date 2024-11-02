@@ -38,6 +38,7 @@ SeSAC_DL_Study/
 |번호|구분|파일|설명|비고|
 |--|--|--|--|--|
 |01|Basic Settings|[Settings_example.ipynb](./Settings_example.ipynb)|기본 환경 세팅||
+||||||
 
 ### 📝 Class File
 <details open>
